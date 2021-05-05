@@ -214,3 +214,21 @@ func IsExist(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil || os.IsExist(err)
 }
+
+
+// thang.pham: new code
+// GetEndpointImportPath returns the import path of the service endpoints.
+func GetPostgresImportPath(name string) (string, error) {
+	return getImportPath(name, "gk_postgres_path_format")
+}
+
+// get config import path
+func GetConfigImportPath(name string) (string, error) {
+	return getImportPath(name, "gk_config_path_format")
+}
+// get util import path
+func GetModelImportPath(name string) (string, error) {
+	return getImportPath(name, "gk_model_path_format")
+}
+// end
+const DBPostgres = "postgres"

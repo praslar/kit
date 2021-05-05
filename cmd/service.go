@@ -20,6 +20,26 @@ var serviceCmd = &cobra.Command{
 		if err := g.Generate(); err != nil {
 			logrus.Error(err)
 		}
+
+		m := generator.NewNewModel(args[0])
+		if err:= m.Generate(); err != nil {
+			logrus.Error(err)
+		}
+
+		c := generator.NewNewConfig(args[0])
+		if err:= c.Generate(); err != nil {
+			logrus.Error(err)
+		}
+
+		u := generator.NewNewUtils(args[0])
+		if err:= u.Generate(); err != nil {
+			logrus.Error(err)
+		}
+
+		db := generator.NewNewPostgreDatabase(args[0])
+		if err := db.Generate(); err != nil {
+			logrus.Error(err)
+		}
 	},
 }
 
