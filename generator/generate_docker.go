@@ -36,11 +36,13 @@ type BuildService struct {
 
 // DockerService represents one docker service.
 type DockerService struct {
-	Build         BuildService `yaml:"build"`
-	Restart       string       `yaml:"restart"`
+	Image         string `yaml:"image"`
+	Command       string `yaml:"command"`
+	WorkingDir    string `yaml:"working_dir"`
 	Volumes       []string
-	ContainerName string   `yaml:"container_name"`
+	Environment   []string `yaml:"environment"`
 	Ports         []string `yaml:"ports"`
+	Networks      []string `yaml:"networks"`
 }
 
 // NewGenerateDocker returns a new docker generator.
@@ -49,7 +51,7 @@ func NewGenerateDocker(glide bool) Gen {
 		glide: glide,
 	}
 	i.dockerCompose = &DockerCompose{}
-	i.dockerCompose.Version = "2"
+	i.dockerCompose.Version = "3"
 	i.dockerCompose.Services = map[string]interface{}{}
 	i.fs = fs.Get()
 	return i
@@ -83,6 +85,7 @@ func (g *GenerateDocker) Generate() (err error) {
 			fmt.Sprintf(viper.GetString("gk_grpc_path_format"), utils.ToLowerSnakeCase(v)),
 			viper.GetString("gk_grpc_file_name"),
 		)
+
 		err = g.generateDockerFile(v, svcFilePath, httpFilePath, grpcFilePath)
 		if err != nil {
 			return err
@@ -127,44 +130,42 @@ func (g *GenerateDocker) generateDockerFile(name, svcFilePath, httpFilePath, grp
 	if !isService {
 		return
 	}
-	dockerFile := `FROM golang
+	dockerFile := `FROM golang:alpine as build-env
 
-RUN mkdir -p %s
+ARG VERSION=0.0.0
+ARG SERVICE="svc-general"
 
-ADD . %s
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
-RUN go get  -t -v ./...
-RUN go get  github.com/canthefason/go-watcher
-RUN go install github.com/canthefason/go-watcher/cmd/watcher
+# cache dependencies first
+WORKDIR /svc
+COPY go.mod /svc
+COPY go.sum /svc
+RUN go mod download
 
-ENTRYPOINT  watcher -run %s/%s/cmd  -watch %s/%s
+# lastly copy source, any change in source will not break above cache
+COPY . /svc
+
+# Build the binary
+RUN go build -a -ldflags="-s -w -X 'main.version=${VERSION}' -X 'main.name=${SERVICE}'" -o /app ./main.go
+
+# # <- Second step to build minimal image
+FROM alpine:3.11
+
+# RUN apk add --no-cache git ca-certificates tzdata
+
+# we have no self-sign certificate, don't need to update
+# && update-ca-certificates
+WORKDIR /svc
+COPY ./conf/app.conf /svc/conf/app.conf
+COPY --from=build-env /app /svc/app
+
+ENTRYPOINT ["/svc/app"]
 `
-	if g.glide {
-		dockerFile = `FROM golang
-
-RUN mkdir -p %s
-
-ADD . %s
-
-RUN curl https://glide.sh/get | sh
-RUN go get  github.com/canthefason/go-watcher
-RUN go install github.com/canthefason/go-watcher/cmd/watcher
-
-RUN cd %s && glide install
-
-ENTRYPOINT  watcher -run %s/%s/cmd -watch %s/%s
-`
-	}
 	fpath := "/go/src/" + pth
 	err = g.addToDockerCompose(name, fpath, httpFilePath, grpcFilePath)
 	if err != nil {
 		return err
-	}
-	if g.glide {
-		dockerFile = fmt.Sprintf(dockerFile, fpath, fpath, fpath, pth, name, pth, name)
-
-	} else {
-		dockerFile = fmt.Sprintf(dockerFile, fpath, fpath, pth, name, pth, name)
 	}
 	return g.fs.WriteFile(path.Join(name, "Dockerfile"), dockerFile, true)
 }
@@ -200,15 +201,20 @@ func (g *GenerateDocker) addToDockerCompose(name, pth, httpFilePath, grpcFilePat
 	}
 	if g.dockerCompose.Services[name] == nil {
 		g.dockerCompose.Services[name] = &DockerService{
-			Build: BuildService{
-				Context:    ".",
-				DockerFile: name + "/Dockerfile",
+			Image:       "golang:1.14",
+			Command:     "[\"go\", \"run\", \"main.go\"]",
+			WorkingDir:  "/"+name,
+			Volumes:     []string{
+				".:" + " /" + name,
+				"shared_gopath:/gopath",
 			},
-			Restart:       "always",
-			ContainerName: name,
-			Volumes: []string{
-				".:" + pth,
+			Environment: []string{
+				" HTTP_PORT: 80",
+				"GOPATH: /gopath",
+				" ELASTIC_APM_SERVER_URL: 3.1.24.78:8200",
 			},
+			Ports:       []string{"8109:80"},
+			Networks:    []string{"finan_network"},
 		}
 		if hasHTTP {
 			httpExpose := 8800

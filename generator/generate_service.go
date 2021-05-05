@@ -184,9 +184,18 @@ func (g *GenerateService) generateServiceStruct() {
 			return
 		}
 	}
-	g.pg.appendStruct(g.serviceStructName)
+	modelImport, err := utils.GetModelImportPath(g.name)
+	if err != nil {
+		logrus.Debugf("Service `%s` structure cannot get import path.", err)
+		return
+	}
+	g.pg.appendStruct(g.serviceStructName, jen.Id("pgDB").Qual(modelImport,"PostgresDatabase"))
 }
 func (g *GenerateService) generateNewMethod() {
+	modelImport, err := utils.GetModelImportPath(g.name)
+	if err != nil {
+		return
+	}
 	for _, v := range g.file.Methods {
 		if v.Name == "New" {
 			logrus.Debugf("Service method `%s` already exists so it will not be recreated.", v.Name)
@@ -199,7 +208,7 @@ func (g *GenerateService) generateNewMethod() {
 	).Line()
 	fn := fmt.Sprintf("New%s", utils.ToCamelCase(g.serviceStructName))
 	body := []jen.Code{
-		jen.Var().Id("svc").Id(g.interfaceName).Op("=").Id(fn).Call(),
+		jen.Var().Id("svc").Id(g.interfaceName).Op("=").Id(fn).Call(jen.Id("db")),
 		jen.For(
 			jen.List(jen.Id("_"), jen.Id("m")).Op(":=").Range().Id("middleware"),
 		).Block(
@@ -212,6 +221,7 @@ func (g *GenerateService) generateNewMethod() {
 		nil,
 		[]jen.Code{
 			jen.Id("middleware").Id("[]Middleware"),
+			jen.Id("db").Qual(modelImport,"PostgresDatabase"),
 		},
 		[]jen.Code{},
 		g.interfaceName,
@@ -219,6 +229,10 @@ func (g *GenerateService) generateNewMethod() {
 	g.pg.NewLine()
 }
 func (g *GenerateService) generateNewBasicStructMethod() {
+	modelImport, err := utils.GetModelImportPath(g.name)
+	if err != nil {
+		return
+	}
 	fn := fmt.Sprintf("New%s", utils.ToCamelCase(g.serviceStructName))
 	for _, v := range g.file.Methods {
 		if v.Name == fn {
@@ -232,9 +246,10 @@ func (g *GenerateService) generateNewBasicStructMethod() {
 		g.interfaceName,
 	).Line()
 	body := []jen.Code{
-		jen.Return(jen.Id(fmt.Sprintf("&%s{}", g.serviceStructName))),
+		jen.Return(jen.Id(fmt.Sprintf("&%s{pgDB: db}", g.serviceStructName))),
 	}
-	g.pg.appendFunction(fn, nil, []jen.Code{}, []jen.Code{}, g.interfaceName, body...)
+
+	g.pg.appendFunction(fn, nil, []jen.Code{jen.Id("db").Qual(modelImport,"PostgresDatabase")}, []jen.Code{}, g.interfaceName, body...)
 	g.pg.NewLine()
 }
 func (g *GenerateService) serviceFound() bool {
@@ -1774,8 +1789,23 @@ func (g *generateCmd) generateRun() (*PartialGenerator, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	modelImport, err := utils.GetModelImportPath(g.name)
+	if err != nil {
+		return nil,err
+	}
+
+	postgreImport,err := utils.GetPostgresImportPath(g.name)
+	if err != nil{
+		return nil, err
+	}
+
+	pg.Raw().List(jen.Id("d"),jen.Err()).Op(":=").Qual(postgreImport,"GetDatabase").Call(jen.Lit("default")).Line()
+	pg.Raw().If(jen.Err().Op("!=").Nil()).Block(jen.Return()).Line()
+	pg.Raw().Id("db").Op(":=").Qual(modelImport,"NewBasicPostgresDatabase").Call(jen.Id("d")).Line()
 	pg.Raw().Id("svc").Op(":=").Qual(svcImport, "New").Call(
 		jen.Id("getServiceMiddleware").Call(jen.Id("logger")),
+		jen.Id("db"),
 	).Line()
 	pg.Raw().Id("eps").Op(":=").Qual(epImport, "New").Call(
 		jen.Id("svc"),
@@ -1784,6 +1814,9 @@ func (g *generateCmd) generateRun() (*PartialGenerator, error) {
 	pg.Raw().Id("g").Op(":=").Id("createService").Call(
 		jen.Id("eps"),
 	).Line()
+
+	pg.Raw().Id("_").Op("=").Qual(modelImport,"AutoMigration").Call().Line()
+
 	pg.Raw().Id("initMetricsEndpoint").Call(jen.Id("g")).Line()
 	pg.Raw().Id("initCancelInterrupt").Call(jen.Id("g")).Line()
 	pg.Raw().Id("logger").Dot("Log").Call(
@@ -2071,6 +2104,7 @@ func (g *generateCmd) generateGetMiddleware() (err error) {
 		).Block(),
 	}
 	if g.generateEndpointDefaultsMiddleware {
+		name := strings.Replace(utils.ToLowerSnakeCase(g.name), "-", "_", -1)
 		c = append(
 			c,
 			jen.Id("duration").Op(":=").Qual("github.com/go-kit/kit/metrics/prometheus", "NewSummaryFrom").Call(
@@ -2079,7 +2113,7 @@ func (g *generateCmd) generateGetMiddleware() (err error) {
 						jen.Id("Help"):      jen.Lit("Request duration in seconds."),
 						jen.Id("Name"):      jen.Lit("request_duration_seconds"),
 						jen.Id("Namespace"): jen.Lit("example"),
-						jen.Id("Subsystem"): jen.Lit(g.name),
+						jen.Id("Subsystem"): jen.Lit(name),
 					},
 				),
 				jen.Index().String().Values(jen.Lit("method"), jen.Lit("success")),

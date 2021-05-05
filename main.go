@@ -15,6 +15,25 @@ func main() {
 }
 
 func setDefaults() {
+	// thang.pham: new code
+	viper.SetDefault("gk_model_path_format", path.Join("%s", "pkg", "model"))
+	viper.SetDefault("gk_postgres_path_format", path.Join("%s", "pkg", "db", "postgres"))
+	viper.SetDefault("gk_config_path_format", path.Join("%s", "config"))
+	viper.SetDefault("gk_utils_path_format", path.Join("%s", "pkg", "utils"))
+	viper.SetDefault("gk_grpc_path_format", path.Join("%s", "pkg", "grpc"))
+
+	viper.SetDefault("gk_model_file_name", "base.go")
+	viper.SetDefault("gk_db_postgres_file_name", "postgres.go")
+	viper.SetDefault("gk_config_file_name", "config.go")
+	viper.SetDefault("gk_status_file_name", "status.yml")
+	viper.SetDefault("gk_utils_utils_file_name", "utils.go")
+	viper.SetDefault("gk_utils_constant_file_name", "constant.go")
+	viper.SetDefault("gk_utils_status_file_name", "status.go")
+	viper.SetDefault("gk_db_postgre_file_name", "db.go")
+	viper.SetDefault("gk_config_postgre_file_name", "config.go")
+	viper.SetDefault("gk_docker_compose_file_name", "docker-compose.yml")
+	// end new code
+
 	viper.SetDefault("gk_service_path_format", path.Join("%s", "pkg", "service"))
 	viper.SetDefault("gk_cmd_service_path_format", path.Join("%s", "cmd", "service"))
 	viper.SetDefault("gk_cmd_path_format", path.Join("%s", "cmd"))
